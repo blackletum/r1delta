@@ -817,6 +817,11 @@ void __stdcall LoaderNotificationCallback(
 			RegisterConVar("delta_hud_show_xpbar", "1", FCVAR_CLIENTDLL | FCVAR_ARCHIVE_PLAYERPROFILE, "Show XP bar.");
 			RegisterConCommand("+voteYes", toggleFullscreenMap_cmd, "Vote yes.", FCVAR_CLIENTDLL);
 			RegisterConCommand("+voteNo", toggleFullscreenMap_cmd, "Vote no.", FCVAR_CLIENTDLL);
+			RegisterConVar("delta_vote_allowed", "1", FCVAR_GAMEDLL | FCVAR_REPLICATED, "Allow voting?"); //sv_allow_votes
+			RegisterConVar("delta_vote_timer_duration", "12.0", FCVAR_GAMEDLL | FCVAR_REPLICATED, "How long to allow voting on an issue");
+			RegisterConVar("delta_vote_failure_timer", "300.0", FCVAR_GAMEDLL | FCVAR_REPLICATED, "A vote that fails cannot be re-submitted for this long");
+			RegisterConVar("delta_vote_creation_timer", "150.0", FCVAR_GAMEDLL | FCVAR_REPLICATED, "How long before a player can attempt to call another vote (in seconds).");
+			RegisterConVar("delta_vote_holder_may_vote_no", "1", FCVAR_GAMEDLL | FCVAR_REPLICATED, "1 = Vote caller is not forced to vote yes on yes/no votes.");
 			
 			MH_CreateHook((LPVOID)(G_localize + 0x3A40), &h_CLocalize__ReloadLocalizationFiles, (LPVOID*)&o_pCLocalize__ReloadLocalizationFiles);
 			MH_EnableHook(MH_ALL_HOOKS);
