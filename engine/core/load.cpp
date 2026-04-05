@@ -822,6 +822,8 @@ void __stdcall LoaderNotificationCallback(
 			RegisterConVar("delta_vote_failure_timer", "300.0", FCVAR_GAMEDLL | FCVAR_REPLICATED, "A vote that fails cannot be re-submitted for this long");
 			RegisterConVar("delta_vote_creation_timer", "150.0", FCVAR_GAMEDLL | FCVAR_REPLICATED, "How long before a player can attempt to call another vote (in seconds).");
 			RegisterConVar("delta_vote_holder_may_vote_no", "1", FCVAR_GAMEDLL | FCVAR_REPLICATED, "1 = Vote caller is not forced to vote yes on yes/no votes.");
+			RegisterConVar("delta_vote_next_map", "", FCVAR_GAMEDLL | FCVAR_REPLICATED, "Next voted map.");
+			RegisterConVar("delta_vote_next_mode", "", FCVAR_GAMEDLL | FCVAR_REPLICATED, "Next voted gamemode.");
 			
 			MH_CreateHook((LPVOID)(G_localize + 0x3A40), &h_CLocalize__ReloadLocalizationFiles, (LPVOID*)&o_pCLocalize__ReloadLocalizationFiles);
 			MH_EnableHook(MH_ALL_HOOKS);
