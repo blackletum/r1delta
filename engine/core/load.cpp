@@ -599,6 +599,7 @@ do_server(const LDR_DLL_NOTIFICATION_DATA* notification_data)
 	RegisterConVar("delta_useLegacyProgressBar", "0", FCVAR_ARCHIVE, "Whether or not to use the old loading bar");
 	RegisterConVar("delta_return_to_lobby", "1", FCVAR_NONE, "Return to lobby after a game");
 	RegisterConVar("delta_allow_empty_server", "1", FCVAR_NONE, "Allow matches with no players.");
+	RegisterConVar("delta_skip_waiting_for_players", "0", FCVAR_NONE, "Skip waiting for players.");
 	CBanSystem::m_pSvBanlistAutosave = RegisterConVar("sv_banlist_autosave", "1", FCVAR_ARCHIVE, "Automatically save ban lists after modification commands.");
 	RegisterConCommand("script", script_cmd, "Execute Squirrel code in server context", FCVAR_GAMEDLL | FCVAR_CHEAT);
 	if (!IsDedicatedServer()) {
