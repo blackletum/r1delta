@@ -135,6 +135,10 @@ jobs:
           # Copy build outputs
           Write-Host "Copying EXE files from ${{ env.BUILD_PATH }} to $outputPath"
           Copy-Item -Path "${{ env.BUILD_PATH }}/*.exe" -Destination "$outputPath/" -ErrorAction SilentlyContinue # Continue if no files match
+          Write-Host "Copying launcher config files from ${{ env.BUILD_PATH }} to $outputPath"
+          Copy-Item -Path "${{ env.BUILD_PATH }}/*.exe.config" -Destination "$outputPath/" -ErrorAction SilentlyContinue # Continue if no files match
+          Write-Host "Copying launcher tool files from ${{ env.BUILD_PATH }}/tools to $outputPath/tools"
+          Copy-Item -Path "${{ env.BUILD_PATH }}/tools" -Destination "$outputPath/" -Recurse -Force -ErrorAction SilentlyContinue # Continue if tools are not present
 
           Write-Host "Copying DLL files from ${{ env.BUILD_PATH }} to $binDeltaPath"
           Copy-Item -Path "${{ env.BUILD_PATH }}/*.dll" -Destination "$binDeltaPath/" -ErrorAction SilentlyContinue # Continue if no files match

@@ -168,9 +168,6 @@
     <Reference Include="System.Xaml">
       <RequiredTargetFramework>4.0</RequiredTargetFramework>
     </Reference>
-    <Reference Include="usis.Net.Bits, Version=3.0.0.0, Culture=neutral, PublicKeyToken=c011191e515bfcf2, processorArchitecture=MSIL">
-      <HintPath>..\packages\usis.Net.Bits.3.0.0\lib\net45\usis.Net.Bits.dll</HintPath>
-    </Reference>
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
@@ -179,7 +176,6 @@
     <ApplicationDefinition Include="App.xaml">
       <Generator>MSBuild:Compile</Generator>
     </ApplicationDefinition>
-    <Compile Include="bitscleanup.cs" />
     <Compile Include="FastDownloadService.cs" />
     <Compile Include="redist.cs" />
     <Compile Include="TitanfallFileList.cs" />
@@ -259,6 +255,23 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="menu_background_imc.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="tools\aria2\aria2c.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="tools\aria2\AUTHORS">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="tools\aria2\COPYING">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="tools\aria2\LICENSE.OpenSSL">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="tools\aria2\README.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <!-- Add this ItemGroup for the SquirrelAwareVersion attribute -->
   <ItemGroup>

@@ -28,6 +28,7 @@
 
 # Executables
 *.exe
+!launcher_ex/tools/aria2/aria2c.exe
 *.out
 *.app
 
@@ -435,6 +436,7 @@ FodyWeavers.xsd
 !libminhook.lib
 !vstdlib.lib
 build/
+.build/
 build2/
 vcpkg/
 vcpkg_installed/

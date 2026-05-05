@@ -11,13 +11,10 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;               // If resume manifest is used later
 using K4os.Hash.xxHash;
 using launcher_ex;                   // For IInstallProgress, SetupWindow
-using System.Net.Http;               // Using HttpClient for FastDownloadService likely
-using System.Text;
 // using Monitor.Core.Utilities;     // Not used directly here
 using System.Reflection;
 using Microsoft.Win32;
 using Dark.Net;
-using BitsCleanup;                   // For BitsJanitor.PurgeStaleJobs()
 
 // Assuming FastDownloadService class exists and handles downloads
 // using FastDownloadService;        // Or whatever namespace it's in
@@ -232,27 +229,6 @@ namespace R1Delta
                 }
 
                 Debug.WriteLine($"[ValidateGamePath] OK: {full}");
-                // --- BITS Cleanup ---
-                var logWriter = new DebugTextWriter();
-                try
-                {
-                    // 1. Clean up R1Delta jobs pointing to *other* directories
-                    Debug.WriteLine($"Running BITS cleanup for orphaned R1Delta jobs in ValidateGamePath...");
-                    var orphanPredicate = BitsJanitor.CreateOrphanedR1DeltaPredicate("INVALID");
-                    BitsJanitor.PurgeStaleJobs(orphanPredicate, logWriter);
-                    Debug.WriteLine("Orphaned R1Delta job cleanup finished.");
-
-                    // 2. Clean up general stale jobs (Mozilla, old/stuck R1Delta in *this* dir)
-                    Debug.WriteLine("Running general BITS cleanup (Mozilla, old/stuck R1Delta)...");
-                    BitsJanitor.PurgeStaleJobs(BitsJanitor.CombinedCleanupPredicate, logWriter);
-                    Debug.WriteLine("General BITS cleanup finished.");
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Warning: BITS cleanup failed: {ex.Message}");
-                    // Continue regardless of cleanup failure
-                }
-                // --- End BITS Cleanup ---
                 return true;
             }
             catch (Exception ex) when (
@@ -277,27 +253,6 @@ namespace R1Delta
         /// </summary>
         private static void EnsurePlaceholderVpkExists(string installDir)
         {
-            // --- BITS Cleanup ---
-            var logWriter = new DebugTextWriter();
-            try
-            {
-                // 1. Clean up R1Delta jobs pointing to *other* directories
-                Debug.WriteLine($"Running BITS cleanup for orphaned R1Delta jobs in EnsurePlaceholderVpkExists...");
-                var orphanPredicate = BitsJanitor.CreateOrphanedR1DeltaPredicate("INVALID");
-                BitsJanitor.PurgeStaleJobs(orphanPredicate, logWriter);
-                Debug.WriteLine("Orphaned R1Delta job cleanup finished.");
-
-                // 2. Clean up general stale jobs (Mozilla, old/stuck R1Delta in *this* dir)
-                Debug.WriteLine("Running general BITS cleanup (Mozilla, old/stuck R1Delta)...");
-                BitsJanitor.PurgeStaleJobs(BitsJanitor.CombinedCleanupPredicate, logWriter);
-                Debug.WriteLine("General BITS cleanup finished.");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Warning: BITS cleanup failed: {ex.Message}");
-                // Continue regardless of cleanup failure
-            }
-            // --- End BITS Cleanup ---
             var placeholder = Path.Combine(installDir, ValidationFileRelativePath);
             if (File.Exists(placeholder)) return;
 
@@ -331,7 +286,7 @@ namespace R1Delta
                 return false;
             }
 
-            // Ensure installDir is an absolute, normalized path for FastDownloadService and BITS cleanup logic
+            // Ensure installDir is an absolute, normalized path for FastDownloadService.
             try
             {
                 installDir = Path.GetFullPath(installDir);
@@ -364,63 +319,79 @@ namespace R1Delta
             bool cancellationOccurred = false; // Flag to track if any task was cancelled
             long overallProgress = 0; // Initialize overall progress
             long maxReportedOverallProgress = -1; // Initialize max reported progress to ensure first report goes through
+            var totalManifestBytes = TitanfallFileList.s_fileList.Sum(file => file.Size);
+            progressUI.ReportProgress(0, totalManifestBytes, 0.0);
 
             Debug.WriteLine($"Verifying existing files in: {installDir}");
             try
             {
-                foreach (var (url, relPath, expectedHash, knownSize) in TitanfallFileList.s_fileList)
+                string verificationError = null;
+                await Task.Run(() =>
                 {
-                    externalCts.ThrowIfCancellationRequested();
-                    if (string.IsNullOrWhiteSpace(relPath))
+                    foreach (var (url, relPath, expectedHash, knownSize) in TitanfallFileList.s_fileList)
                     {
-                        Debug.WriteLine("Warning: Empty relative path.");
-                        continue;
-                    }
-
-                    var dest = Path.Combine(installDir, relPath);
-                    var dir = Path.GetDirectoryName(dest);
-                    if (string.IsNullOrEmpty(dir))
-                    {
-                        progressUI.ShowError("Internal Error: Could not determine directory.");
-                        return false;
-                    }
-                    Directory.CreateDirectory(dir);
-
-                    bool needs = true;
-                    long currentSize = 0; // Track current size for initial progress
-                    if (File.Exists(dest))
-                    {
-                        try
+                        externalCts.ThrowIfCancellationRequested();
+                        if (string.IsNullOrWhiteSpace(relPath))
                         {
-                            var fi = new FileInfo(dest);
-                            currentSize = fi.Length; // Store actual size
-                            if (fi.Length == knownSize)
+                            Debug.WriteLine("Warning: Empty relative path.");
+                            continue;
+                        }
+
+                        var dest = Path.Combine(installDir, relPath);
+                        var dir = Path.GetDirectoryName(dest);
+                        if (string.IsNullOrEmpty(dir))
+                        {
+                            verificationError = "Internal Error: Could not determine directory.";
+                            return;
+                        }
+                        Directory.CreateDirectory(dir);
+
+                        bool needs = true;
+                        long currentSize = 0; // Track current size for initial progress
+                        if (File.Exists(dest))
+                        {
+                            try
                             {
-                                if (knownSize == 0) // Empty files are always considered valid if size matches
-                                    needs = false;
-                                else if (ComputeXxHash64(dest) == expectedHash)
-                                    needs = false;
+                                var fi = new FileInfo(dest);
+                                currentSize = fi.Length; // Store actual size
+                                if (fi.Length == knownSize)
+                                {
+                                    if (knownSize == 0) // Empty files are always considered valid if size matches
+                                        needs = false;
+                                    else if (ComputeXxHash64(dest, externalCts) == expectedHash)
+                                        needs = false;
+                                    else
+                                        Debug.WriteLine($"Checksum mismatch: {relPath}");
+                                }
                                 else
-                                    Debug.WriteLine($"Checksum mismatch: {relPath}");
+                                {
+                                    Debug.WriteLine($"Size mismatch: {relPath} (Expected: {knownSize}, Got: {fi.Length})");
+                                }
                             }
-                            else
+                            catch (OperationCanceledException)
                             {
-                                Debug.WriteLine($"Size mismatch: {relPath} (Expected: {knownSize}, Got: {fi.Length})");
+                                throw;
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"Warning verifying {dest}: {ex.Message}");
+                                // Assume needs download if verification fails
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"Warning verifying {dest}: {ex.Message}");
-                            // Assume needs download if verification fails
-                        }
-                    }
 
-                    fileTotalBytes[dest] = knownSize;
-                    // Initialize received bytes: Use actual current size if file exists, otherwise 0.
-                    // This makes the initial progress reflect the state BITS might resume from more closely.
-                    fileReceivedBytes[dest] = currentSize;
-                    if (needs)
-                        toDownload.Add((url, dest, expectedHash, knownSize));
+                        fileTotalBytes[dest] = knownSize;
+                        // Initialize received bytes: Use actual current size if file exists, otherwise 0.
+                        // This makes the initial progress reflect resumable on-disk data.
+                        fileReceivedBytes[dest] = currentSize;
+                        if (needs)
+                            toDownload.Add((url, dest, expectedHash, knownSize));
+                    }
+                }, externalCts).ConfigureAwait(false);
+
+                if (verificationError != null)
+                {
+                    progressUI.ShowError(verificationError);
+                    return false;
                 }
             }
             catch (OperationCanceledException)
@@ -455,38 +426,12 @@ namespace R1Delta
 
             Debug.WriteLine($"{toDownload.Count} files to download/resume.");
 
-            // --- BITS Cleanup ---
-            var logWriter = new DebugTextWriter();
-            try
-            {
-                // 1. Clean up R1Delta jobs pointing to *other* directories
-                Debug.WriteLine($"Running BITS cleanup for orphaned R1Delta jobs (current dir: {installDir})...");
-                var orphanPredicate = BitsJanitor.CreateOrphanedR1DeltaPredicate(installDir);
-                BitsJanitor.PurgeStaleJobs(orphanPredicate, logWriter);
-                Debug.WriteLine("Orphaned R1Delta job cleanup finished.");
-
-                // 2. Clean up general stale jobs (Mozilla, old/stuck R1Delta in *this* dir)
-                Debug.WriteLine("Running general BITS cleanup (Mozilla, old/stuck R1Delta)...");
-                BitsJanitor.PurgeStaleJobs(BitsJanitor.CombinedCleanupPredicate, logWriter);
-                Debug.WriteLine("General BITS cleanup finished.");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Warning: BITS cleanup failed: {ex.Message}");
-                // Continue regardless of cleanup failure
-            }
-            // --- End BITS Cleanup ---
-
-
             var stopwatch = Stopwatch.StartNew();
             // overallProgress is already initialized correctly above
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(externalCts);
             var token = linked.Token;
-            using var sem = new SemaphoreSlim(10, 10); // Limit concurrent downloads
-
-            // --- FastDownloadService Instantiation ---
-            // Pass the normalized installDir
-            using var dl = new FastDownloadService(installDir);
+            using var sem = new SemaphoreSlim(4, 4); // Limit concurrent aria2 processes.
+            using var hashSem = new SemaphoreSlim(1, 1); // Avoid thrashing slow disks during verification.
 
             var tasks = toDownload.Select(item => Task.Run(async () =>
             {
@@ -495,8 +440,10 @@ namespace R1Delta
 
                 try
                 {
+                    using var dl = new FastDownloadService(installDir);
+
                     // Progress reporting setup
-                    // 'got' is bytes for *this* file, 'total' is total for *this* file (from BITS)
+                    // 'got' is bytes for *this* file, 'total' is total for *this* file.
                     void OnProg(long got, long total)
                     {
                         if (token.IsCancellationRequested) return;
@@ -505,7 +452,7 @@ namespace R1Delta
                         {
                             // Update the specific file's progress in the dictionary
                             // Clamp 'got' to ensure it doesn't exceed the expected size (item.Size)
-                            // BITS total might sometimes be slightly off during resume.
+                            // aria2 progress is based on the current on-disk file size during resume.
                             long clampedGot = Clamp(got, 0, item.Size);
                             fileReceivedBytes[item.Dest] = clampedGot;
 
@@ -551,15 +498,8 @@ namespace R1Delta
                     dl.DownloadProgressChanged += OnProg;
                     try
                     {
-                        // Construct the BITS job name including the full destination path
-                        // Ensure installDir is prepended correctly if item.Dest is relative (it shouldn't be here)
-                        string fullDestPath = Path.GetFullPath(item.Dest); // Should already be absolute from earlier combine
-                        string jobName = $"R1Delta|{fullDestPath}";
-
-                        Debug.WriteLine($"Downloading/Resuming {Path.GetFileName(item.Dest)} (Job: '{jobName}')");
-                        // Pass the job name to FastDownloadService (assuming it accepts it)
-                        // If DownloadFileAsync doesn't accept a job name, this needs adjustment in FastDownloadService
-                        await dl.DownloadFileAsync(item.Url, item.Dest, token).ConfigureAwait(false); // TODO: Update FastDownloadService to accept jobName if needed
+                        Debug.WriteLine($"Downloading/Resuming {Path.GetFileName(item.Dest)} with aria2c.");
+                        await dl.DownloadFileAsync(item.Url, item.Dest, token).ConfigureAwait(false);
                         Debug.WriteLine($"Finished {Path.GetFileName(item.Dest)}");
                     }
                     finally
@@ -585,10 +525,18 @@ namespace R1Delta
 
                     if (item.Size > 0) // Only hash non-empty files
                     {
-                        var actualHash = ComputeXxHash64(item.Dest);
-                        if (actualHash != item.Hash)
+                        await hashSem.WaitAsync(token).ConfigureAwait(false);
+                        try
                         {
-                            throw new IOException($"Checksum mismatch after download for {Path.GetFileName(item.Dest)}: expected {item.Hash:X}, got {actualHash:X}");
+                            var actualHash = ComputeXxHash64(item.Dest, token);
+                            if (actualHash != item.Hash)
+                            {
+                                throw new IOException($"Checksum mismatch after download for {Path.GetFileName(item.Dest)}: expected {item.Hash:X}, got {actualHash:X}");
+                            }
+                        }
+                        finally
+                        {
+                            hashSem.Release();
                         }
                     }
                      Debug.WriteLine($"Verified {Path.GetFileName(item.Dest)} OK.");
@@ -739,19 +687,27 @@ namespace R1Delta
             };
         }
 
-        private static ulong ComputeXxHash64(string filePath)
+        private static ulong ComputeXxHash64(string filePath, CancellationToken cancellationToken = default)
         {
             const int bufSize = 4 * 1024 * 1024;
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufSize, FileOptions.SequentialScan);
                 if (stream.Length == 0) return 0xEF46DB3751D8E999; // Precomputed hash for empty file
                 var hasher = new XXH64();
                 var buffer = new byte[bufSize];
                 int read;
                 while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                     hasher.Update(buffer.AsSpan(0, read));
+                }
                 return hasher.Digest();
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (IOException ex) // Catch specific IO exceptions
             {
@@ -787,16 +743,6 @@ namespace R1Delta
             if (val.CompareTo(min) < 0) return min;
             if (val.CompareTo(max) > 0) return max;
             return val;
-        }
-
-        // Helper class to redirect Console.Write/WriteLine to Debug.Write/WriteLine
-        private class DebugTextWriter : TextWriter
-        {
-            public override Encoding Encoding => Encoding.UTF8;
-            public override void WriteLine(string value) => Debug.WriteLine(value);
-            public override void Write(string value) => Debug.Write(value);
-            // Add missing WriteLine() override
-            public override void WriteLine() => Debug.WriteLine(string.Empty);
         }
     }
 
