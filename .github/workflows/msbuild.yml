@@ -144,6 +144,8 @@ jobs:
           Copy-Item -Path "${{ env.BUILD_PATH }}/*.dll" -Destination "$binDeltaPath/" -ErrorAction SilentlyContinue # Continue if no files match
           Write-Host "Copying PDB files from ${{ env.BUILD_PATH }} to $binDeltaPath"
           Copy-Item -Path "${{ env.BUILD_PATH }}/*.pdb" -Destination "$binDeltaPath/" -ErrorAction SilentlyContinue # Continue if no files match
+          Write-Host "Copying PNG files from ${{ env.BUILD_PATH }} to $binDeltaPath"
+          Copy-Item -Path "${{ env.BUILD_PATH }}/*.png" -Destination "$binDeltaPath/" -ErrorAction SilentlyContinue # Continue if no files match
 
           # Copy core scripts (assuming they are checked out to 'core')
           $coreSourcePath = "${{ github.workspace }}/core" # Path where core scripts were checked out

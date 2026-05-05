@@ -155,7 +155,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalDependencies>Shlwapi.lib;winhttp.lib;Shell32.lib;vstdlib.lib;tier0_orig.lib;bcrypt.lib;Ws2_32.lib;EOSSDK-Win64-Shipping.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Shlwapi.lib;winhttp.lib;Shell32.lib;Windowscodecs.lib;Psapi.lib;vstdlib.lib;tier0_orig.lib;bcrypt.lib;Ws2_32.lib;EOSSDK-Win64-Shipping.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ModuleDefinitionFile>test.def</ModuleDefinitionFile>
       <AdditionalLibraryDirectories>$(ProjectDir)thirdparty\eos\SDK\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
@@ -167,7 +167,8 @@
       <Command>tskill r1delta &amp; exit 0</Command>
     </PreBuildEvent>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)thirdparty\eos\SDK\Bin\EOSSDK-Win64-Shipping.dll" copy /Y "$(ProjectDir)thirdparty\eos\SDK\Bin\EOSSDK-Win64-Shipping.dll" "$(OutDir)"</Command>
+      <Command>if exist "$(ProjectDir)thirdparty\eos\SDK\Bin\EOSSDK-Win64-Shipping.dll" copy /Y "$(ProjectDir)thirdparty\eos\SDK\Bin\EOSSDK-Win64-Shipping.dll" "$(OutDir)"
+if exist "$(ProjectDir)client\rendering\fonts\minecraft_default.png" copy /Y "$(ProjectDir)client\rendering\fonts\minecraft_default.png" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -193,12 +194,13 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <AdditionalDependencies>Shlwapi.lib;winhttp.lib;Shell32.lib;vstdlib.lib;tier0_orig.lib;bcrypt.lib;Ws2_32.lib;EOSSDK-Win64-Shipping.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Shlwapi.lib;winhttp.lib;Shell32.lib;Windowscodecs.lib;Psapi.lib;vstdlib.lib;tier0_orig.lib;bcrypt.lib;Ws2_32.lib;EOSSDK-Win64-Shipping.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ModuleDefinitionFile>test.def</ModuleDefinitionFile>
       <AdditionalLibraryDirectories>$(ProjectDir)thirdparty\eos\SDK\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>if exist "$(ProjectDir)thirdparty\eos\SDK\Bin\EOSSDK-Win64-Shipping.dll" copy /Y "$(ProjectDir)thirdparty\eos\SDK\Bin\EOSSDK-Win64-Shipping.dll" "$(OutDir)"</Command>
+      <Command>if exist "$(ProjectDir)thirdparty\eos\SDK\Bin\EOSSDK-Win64-Shipping.dll" copy /Y "$(ProjectDir)thirdparty\eos\SDK\Bin\EOSSDK-Win64-Shipping.dll" "$(OutDir)"
+if exist "$(ProjectDir)client\rendering\fonts\minecraft_default.png" copy /Y "$(ProjectDir)client\rendering\fonts\minecraft_default.png" "$(OutDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -387,6 +389,7 @@
     <ClCompile Include="vsdk\vstdlib\strtools.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="client\rendering\fonts\minecraft_default.png" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>

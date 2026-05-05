@@ -629,6 +629,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="client\rendering\fonts\minecraft_default.png">
+      <Filter>client\rendering</Filter>
+    </None>
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
