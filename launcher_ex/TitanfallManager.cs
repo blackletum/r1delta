@@ -315,8 +315,6 @@ namespace R1Delta
             const double rollingWindow = 5.0;
             double lastUpdate = -1;
             object progressLock = new object();
-            bool errorReported = false;
-            bool cancellationOccurred = false; // Flag to track if any task was cancelled
             long overallProgress = 0; // Initialize overall progress
             long maxReportedOverallProgress = -1; // Initialize max reported progress to ensure first report goes through
             var totalManifestBytes = TitanfallFileList.s_fileList.Sum(file => file.Size);
@@ -412,8 +410,6 @@ namespace R1Delta
             // Calculate initial overall progress by summing the initial state of fileReceivedBytes
             // Clamp initial progress to ensure it doesn't exceed totalNeeded due to oversized existing files
             overallProgress = Clamp(fileReceivedBytes.Values.Sum(), 0, totalNeeded);
-            maxReportedOverallProgress = overallProgress; // Set initial max reported
-            progressUI.ReportProgress(overallProgress, totalNeeded, 0.0);
 
             if (!toDownload.Any())
             {
@@ -427,246 +423,150 @@ namespace R1Delta
             Debug.WriteLine($"{toDownload.Count} files to download/resume.");
 
             var stopwatch = Stopwatch.StartNew();
-            // overallProgress is already initialized correctly above
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(externalCts);
             var token = linked.Token;
-            using var sem = new SemaphoreSlim(4, 4); // Limit concurrent aria2 processes.
-            using var hashSem = new SemaphoreSlim(1, 1); // Avoid thrashing slow disks during verification.
+            var downloadedFilesTotal = toDownload.Sum(item => item.Size);
+            var validationProgress = 0L;
+            var validationWindow = Math.Max(1L, totalNeeded / 100L);
+            var downloadCap = Math.Max(0L, totalNeeded - validationWindow);
 
-            var tasks = toDownload.Select(item => Task.Run(async () =>
+            long ProjectProgress(long downloadedBytes, long validatedBytes)
             {
-                await sem.WaitAsync(token).ConfigureAwait(false);
-                token.ThrowIfCancellationRequested();
+                if (downloadedFilesTotal <= 0)
+                    return Clamp(downloadedBytes, 0, totalNeeded);
 
-                try
-                {
-                    using var dl = new FastDownloadService(installDir);
+                var cappedDownload = Clamp(downloadedBytes, 0, downloadCap);
+                var validationContribution = Clamp((validationWindow * validatedBytes) / downloadedFilesTotal, 0, validationWindow);
+                return Clamp(cappedDownload + validationContribution, 0, totalNeeded);
+            }
 
-                    // Progress reporting setup
-                    // 'got' is bytes for *this* file, 'total' is total for *this* file.
-                    void OnProg(long got, long total)
-                    {
-                        if (token.IsCancellationRequested) return;
+            void ReportAggregateProgress(long rawOverallProgress, double speed)
+            {
+                var projectedProgress = ProjectProgress(rawOverallProgress, validationProgress);
+                if (projectedProgress < maxReportedOverallProgress)
+                    return;
 
-                        lock (progressLock)
-                        {
-                            // Update the specific file's progress in the dictionary
-                            // Clamp 'got' to ensure it doesn't exceed the expected size (item.Size)
-                            // aria2 progress is based on the current on-disk file size during resume.
-                            long clampedGot = Clamp(got, 0, item.Size);
-                            fileReceivedBytes[item.Dest] = clampedGot;
+                maxReportedOverallProgress = projectedProgress;
+                progressUI.ReportProgress(projectedProgress, totalNeeded, speed);
+                lastUpdate = stopwatch.Elapsed.TotalSeconds;
+            }
 
-                            // Recalculate overall progress by summing all current values
-                            overallProgress = fileReceivedBytes.Values.Sum();
-                            // Clamp overall progress to prevent over/undershooting
-                            overallProgress = Clamp(overallProgress, 0, totalNeeded);
+            ReportAggregateProgress(overallProgress, 0.0);
 
-                            // --- MONOTONIC PROGRESS CHECK ---
-                            // Only report if progress hasn't decreased and enough time has passed or it's the end
-                            if (overallProgress >= maxReportedOverallProgress)
-                            {
-                                maxReportedOverallProgress = overallProgress; // Update max reported
+            void RecordSpeedSample(long rawOverallProgress)
+            {
+                var now = stopwatch.Elapsed.TotalSeconds;
+                history.Enqueue((Time: now, Progress: rawOverallProgress));
+                while (history.Count > 1 && history.Peek().Time < now - rollingWindow)
+                    history.Dequeue();
+            }
 
-                                // Calculate rolling speed based on the corrected overallProgress
-                                var now = stopwatch.Elapsed.TotalSeconds;
-                                history.Enqueue((Time: now, Progress: overallProgress));
-                                while (history.Count > 1 && history.Peek().Time < now - rollingWindow)
-                                    history.Dequeue();
+            double CalculateSpeed()
+            {
+                if (history.Count <= 1)
+                    return 0;
 
-                                // Throttle UI updates
-                                // Update slightly more often, or when this file finishes (got == item.Size)
-                                if (now - lastUpdate >= 0.5 || overallProgress == totalNeeded || got >= item.Size)
-                                {
-                                    double speed = 0;
-                                    if (history.Count > 1)
-                                    {
-                                        (double t0, long p0) = history.Peek();
-                                        var dt = now - t0;
-                                        var dp = overallProgress - p0;
-                                        if (dt > 0.01) speed = dp / dt;
-                                    }
-                                    progressUI.ReportProgress(overallProgress, totalNeeded, speed);
-                                    lastUpdate = now;
-                                }
-                            }
-                            // If overallProgress < maxReportedOverallProgress, we simply skip the UI update
-                            // to prevent the bar from going backward. The next update where progress
-                            // catches up will be reported.
-                        }
-                    }
-
-                    dl.DownloadProgressChanged += OnProg;
-                    try
-                    {
-                        Debug.WriteLine($"Downloading/Resuming {Path.GetFileName(item.Dest)} with aria2c.");
-                        await dl.DownloadFileAsync(item.Url, item.Dest, token).ConfigureAwait(false);
-                        Debug.WriteLine($"Finished {Path.GetFileName(item.Dest)}");
-                    }
-                    finally
-                    {
-                        // Check cancellation before removing progress handler
-                        if (!token.IsCancellationRequested)
-                        {
-                           dl.DownloadProgressChanged -= OnProg;
-                        } else {
-                            // If cancelled, try to remove handler but don't throw if it fails
-                            try { dl.DownloadProgressChanged -= OnProg; } catch {}
-                        }
-                    }
-
-                    token.ThrowIfCancellationRequested(); // Check cancellation after download completes
-
-                    // --- Post-Download Verification ---
-                    var fi2 = new FileInfo(item.Dest);
-                    if (fi2.Length != item.Size)
-                    {
-                        throw new IOException($"Size mismatch after download for {Path.GetFileName(item.Dest)}: expected {item.Size}, got {fi2.Length}");
-                    }
-
-                    if (item.Size > 0) // Only hash non-empty files
-                    {
-                        await hashSem.WaitAsync(token).ConfigureAwait(false);
-                        try
-                        {
-                            var actualHash = ComputeXxHash64(item.Dest, token);
-                            if (actualHash != item.Hash)
-                            {
-                                throw new IOException($"Checksum mismatch after download for {Path.GetFileName(item.Dest)}: expected {item.Hash:X}, got {actualHash:X}");
-                            }
-                        }
-                        finally
-                        {
-                            hashSem.Release();
-                        }
-                    }
-                     Debug.WriteLine($"Verified {Path.GetFileName(item.Dest)} OK.");
-
-                    // --- Final Progress Update ---
-                    // Ensure this file's contribution is fully accounted for by setting its final size
-                    // and recalculating the overall progress one last time.
-                    lock (progressLock)
-                    {
-                        // Mark as complete in dictionary with the definitive size
-                        fileReceivedBytes[item.Dest] = item.Size;
-                        // Recalculate overall progress based on the final state
-                        overallProgress = fileReceivedBytes.Values.Sum();
-                        overallProgress = Clamp(overallProgress, 0, totalNeeded); // Clamp again
-
-                        // Force one last UI update reflecting the completion, ensuring it's >= max reported
-                        if (overallProgress >= maxReportedOverallProgress)
-                        {
-                            maxReportedOverallProgress = overallProgress; // Update max
-                            var now = stopwatch.Elapsed.TotalSeconds;
-                            double speed = 0; // Speed is less relevant on final update
-                             if (history.Count > 1)
-                             {
-                                 (double t0, long p0) = history.Peek();
-                                 var dt = now - t0;
-                                 var dp = overallProgress - p0;
-                                 if (dt > 0.01) speed = dp / dt;
-                             }
-                            progressUI.ReportProgress(overallProgress, totalNeeded, speed);
-                            lastUpdate = now;
-                        }
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    Debug.WriteLine($"Cancelled: {Path.GetFileName(item.Dest)}");
-                    lock (progressLock) // Use lock for thread safety
-                    {
-                        cancellationOccurred = true; // SET FLAG
-                    }
-                    // Don't re-throw cancellation, let Task.WhenAll handle it (or check flag later)
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Error downloading/verifying {Path.GetFileName(item.Dest)}: {ex}");
-                    bool firstError;
-                    lock (progressLock) // Use the same lock for error reporting flag
-                    {
-                        firstError = !errorReported;
-                        if (firstError) errorReported = true;
-                    }
-                    if (firstError)
-                    {
-                        progressUI.ShowError($"Download error ({Path.GetFileName(item.Dest)}): {ex.Message}");
-                        linked.Cancel();
-                    }
-                    // We don't re-throw here to allow other downloads to potentially finish,
-                    // but the errorReported flag will cause the overall result to be false.
-                }
-                finally
-                {
-                    sem.Release();
-                }
-            }, token)).ToList();
+                (double t0, long p0) = history.Peek();
+                var dt = stopwatch.Elapsed.TotalSeconds - t0;
+                var dp = overallProgress - p0;
+                return dt > 0.01 ? dp / dt : 0;
+            }
 
             try
             {
-                Debug.WriteLine($"Waiting for {tasks.Count} download tasks...");
-                await Task.WhenAll(tasks).ConfigureAwait(false);
-                // Don't check token here, WhenAll throws if any task was cancelled
-
-                // Final progress update after all tasks complete (or are cancelled/error out)
-                // Recalculate one last time based on the final state in fileReceivedBytes
-                lock(progressLock) // Ensure thread safety for final calculation
+                using var dl = new FastDownloadService(installDir);
+                dl.DownloadProgressChanged += (destinationPath, got, total) =>
                 {
-                    overallProgress = fileReceivedBytes.Values.Sum();
-                    overallProgress = Clamp(overallProgress, 0, totalNeeded);
-                    // Ensure the final report shows the correct clamped value, even if it means
-                    // reporting a value slightly lower than a previous peak if clamping occurred.
-                    // Or, more simply, just report the final calculated value.
-                    maxReportedOverallProgress = overallProgress; // Update max to final value
-                }
-                // Report final progress regardless of whether it decreased due to clamping/final calculation
-                progressUI.ReportProgress(overallProgress, totalNeeded, 0);
+                    if (token.IsCancellationRequested) return;
 
-
-                // *** CHECK FLAGS HERE ***
-                if (errorReported || cancellationOccurred) // Check both flags
-                {
-                    Debug.WriteLine($"Download process completed with {(errorReported ? "errors" : "")}{(cancellationOccurred ? (errorReported ? " and" : "") + " cancellation" : "")}.");
-                    // If cancelled, ensure the UI shows cancellation message if not already shown by error
-                    if (cancellationOccurred && !errorReported)
+                    lock (progressLock)
                     {
-                        if (!externalCts.IsCancellationRequested)
-                            progressUI.ShowError("Operation Cancelled");
+                        var expectedSize = fileTotalBytes.TryGetValue(destinationPath, out var knownSize) ? knownSize : total;
+                        fileReceivedBytes[destinationPath] = Clamp(got, 0, expectedSize);
+                        overallProgress = Clamp(fileReceivedBytes.Values.Sum(), 0, totalNeeded);
+                        RecordSpeedSample(overallProgress);
+
+                        var now = stopwatch.Elapsed.TotalSeconds;
+                        if (now - lastUpdate >= 0.5)
+                            ReportAggregateProgress(overallProgress, CalculateSpeed());
                     }
-                    return false; // Return false if any error or cancellation occurred
-                }
+                };
 
-                // Double-check overall progress after completion (optional sanity check)
-                if (overallProgress != totalNeeded)
+                var downloadRequests = toDownload.Select(item => new FastDownloadService.DownloadRequest
                 {
-                     Debug.WriteLine($"Warning: Final progress {overallProgress} does not match total {totalNeeded}.");
-                     // Might indicate calculation issues or files changing size unexpectedly.
-                     // For now, just warn. If downloads succeeded, we should be okay.
-                }
+                    Url = item.Url,
+                    DestinationPath = item.Dest
+                }).ToList();
 
+                Debug.WriteLine($"Starting one aria2c batch for {downloadRequests.Count} files.");
+                await dl.DownloadFilesAsync(downloadRequests, token).ConfigureAwait(false);
 
-                Debug.WriteLine("All downloads completed and verified successfully.");
-                EnsurePlaceholderVpkExists(installDir); // *** ONLY CALL IF NO ERRORS/CANCELLATION ***
-                return true; // Success
-            }
-            catch (OperationCanceledException) // Catches cancellation thrown by WhenAll itself
-            {
-                Debug.WriteLine("Download operation was cancelled (WhenAll).");
-                lock(progressLock)
+                lock (progressLock)
                 {
-                    cancellationOccurred = true; // Ensure flag is set here too
-                    // Recalculate progress
+                    foreach (var item in toDownload)
+                        fileReceivedBytes[item.Dest] = item.Size;
+
                     overallProgress = fileReceivedBytes.Values.Sum();
                     overallProgress = Clamp(overallProgress, 0, totalNeeded);
-                    // Report final progress state on cancellation
-                    maxReportedOverallProgress = overallProgress;
+                    ReportAggregateProgress(overallProgress, 0);
                 }
-                progressUI.ReportProgress(overallProgress, totalNeeded, 0);
-                 // Ensure cancellation message is shown
-                if (!errorReported && !externalCts.IsCancellationRequested) progressUI.ShowError("Operation Cancelled");
-                return false; // Return false as the operation didn't complete fully
+
+                Debug.WriteLine("Downloads complete. Verifying downloaded files...");
+                foreach (var item in toDownload)
+                {
+                    token.ThrowIfCancellationRequested();
+
+                    var fi = new FileInfo(item.Dest);
+                    if (fi.Length != item.Size)
+                    {
+                        throw new IOException($"Size mismatch after download for {Path.GetFileName(item.Dest)}: expected {item.Size}, got {fi.Length}");
+                    }
+
+                    if (item.Size > 0)
+                    {
+                        var verifiedForFile = 0L;
+                        var actualHash = ComputeXxHash64(item.Dest, token, bytesRead =>
+                        {
+                            lock (progressLock)
+                            {
+                                var delta = bytesRead - verifiedForFile;
+                                if (delta <= 0)
+                                    return;
+
+                                verifiedForFile = bytesRead;
+                                validationProgress = Clamp(validationProgress + delta, 0, downloadedFilesTotal);
+                                ReportAggregateProgress(overallProgress, 0);
+                            }
+                        });
+
+                        if (actualHash != item.Hash)
+                        {
+                            throw new IOException($"Checksum mismatch after download for {Path.GetFileName(item.Dest)}: expected {item.Hash:X}, got {actualHash:X}");
+                        }
+                    }
+
+                    Debug.WriteLine($"Verified {Path.GetFileName(item.Dest)} OK.");
+                }
+
+                progressUI.ReportProgress(totalNeeded, totalNeeded, 0);
+                Debug.WriteLine("All downloads completed and verified successfully.");
+                EnsurePlaceholderVpkExists(installDir);
+                return true;
             }
-            // No need for a general catch here, as individual task exceptions are handled within the Task.Run lambda
+            catch (OperationCanceledException)
+            {
+                Debug.WriteLine("Download operation was cancelled.");
+                if (!externalCts.IsCancellationRequested)
+                    progressUI.ShowError("Operation Cancelled");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Download process failed: {ex}");
+                progressUI.ShowError($"Download error: {ex.Message}");
+                linked.Cancel();
+                return false;
+            }
             finally
             {
                 stopwatch.Stop();
@@ -687,7 +587,7 @@ namespace R1Delta
             };
         }
 
-        private static ulong ComputeXxHash64(string filePath, CancellationToken cancellationToken = default)
+        private static ulong ComputeXxHash64(string filePath, CancellationToken cancellationToken = default, Action<long> progress = null)
         {
             const int bufSize = 4 * 1024 * 1024;
             try
@@ -698,10 +598,13 @@ namespace R1Delta
                 var hasher = new XXH64();
                 var buffer = new byte[bufSize];
                 int read;
+                long totalRead = 0;
                 while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     hasher.Update(buffer.AsSpan(0, read));
+                    totalRead += read;
+                    progress?.Invoke(totalRead);
                 }
                 return hasher.Digest();
             }
