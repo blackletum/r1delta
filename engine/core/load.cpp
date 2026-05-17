@@ -606,8 +606,8 @@ do_server(const LDR_DLL_NOTIFICATION_DATA* notification_data)
 	if (!IsDedicatedServer()) {
 		RegisterConCommand("script_client", script_client_cmd, "Execute Squirrel code in client context", FCVAR_NONE);
 		RegisterConCommand("script_ui", script_ui_cmd, "Execute Squirrel code in UI context", FCVAR_NONE);
+		RegisterConCommand("noclip", noclip_cmd, "Toggles NOCLIP mode.", FCVAR_GAMEDLL | FCVAR_CHEAT);
 	}
-	RegisterConCommand("noclip", noclip_cmd, "Toggles NOCLIP mode.", FCVAR_GAMEDLL | FCVAR_CHEAT);
 	RegisterConVar("bot_kick_on_death", "1", FCVAR_GAMEDLL | FCVAR_CHEAT, "Enable/disable bots getting kicked on death.");
 	RegisterConVar("delta_vote_allowed", "1", FCVAR_GAMEDLL | FCVAR_REPLICATED, "Allow voting?"); //sv_allow_votes
 	RegisterConVar("delta_vote_timer_duration", "12.0", FCVAR_GAMEDLL | FCVAR_REPLICATED, "How long to allow voting on an issue");
