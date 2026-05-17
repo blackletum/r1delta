@@ -600,14 +600,14 @@ do_server(const LDR_DLL_NOTIFICATION_DATA* notification_data)
 	RegisterConVar("delta_return_to_lobby", "1", FCVAR_NONE, "Return to lobby after a game");
 	RegisterConVar("delta_allow_empty_server", "1", FCVAR_NONE, "Allow matches with no players.");
 	RegisterConVar("delta_skip_waiting_for_players", "0", FCVAR_NONE, "Skip waiting for players.");
+
 	CBanSystem::m_pSvBanlistAutosave = RegisterConVar("sv_banlist_autosave", "1", FCVAR_ARCHIVE, "Automatically save ban lists after modification commands.");
 	RegisterConCommand("script", script_cmd, "Execute Squirrel code in server context", FCVAR_GAMEDLL | FCVAR_CHEAT);
 	if (!IsDedicatedServer()) {
 		RegisterConCommand("script_client", script_client_cmd, "Execute Squirrel code in client context", FCVAR_NONE);
 		RegisterConCommand("script_ui", script_ui_cmd, "Execute Squirrel code in UI context", FCVAR_NONE);
-		RegisterConCommand("noclip", noclip_cmd, "Toggles NOCLIP mode.", FCVAR_GAMEDLL | FCVAR_CHEAT);
 	}
-
+	RegisterConCommand("noclip", noclip_cmd, "Toggles NOCLIP mode.", FCVAR_GAMEDLL | FCVAR_CHEAT);
 	RegisterConVar("bot_kick_on_death", "1", FCVAR_GAMEDLL | FCVAR_CHEAT, "Enable/disable bots getting kicked on death.");
 	RegisterConVar("delta_vote_allowed", "1", FCVAR_GAMEDLL | FCVAR_REPLICATED, "Allow voting?"); //sv_allow_votes
 	RegisterConVar("delta_vote_timer_duration", "12.0", FCVAR_GAMEDLL | FCVAR_REPLICATED, "How long to allow voting on an issue");
@@ -714,6 +714,127 @@ do_server(const LDR_DLL_NOTIFICATION_DATA* notification_data)
 	//std::cout << "did hooks" << std::endl;
 }
 
+
+struct ShaderParamInfo
+{
+	const char* m_name;
+	int dword_8;
+	int m_nFlags;
+	const char* m_defaultVal;
+	const char* m_helpText;
+	uint64_t qword_20;
+};
+
+struct WaterShader
+{
+	struct WaterShaderVtbl
+	{
+		const char* (__fastcall* GetName)(WaterShader*);
+		int(__fastcall* GetParamCount)(WaterShader*);
+		ShaderParamInfo* (__fastcall* GetParamInfo)(WaterShader*, int);
+	};
+	WaterShaderVtbl* vtbl;
+};
+
+struct CTexture
+{
+	struct CTexture_vtbl
+	{
+		const char* (__fastcall* GetName)(CTexture* thisptr);
+	}*vtbl;
+};
+
+
+struct waterShaderData
+{
+	_DWORD dword_0;
+	_DWORD dword_4;
+	_BYTE gap_8[16];
+	unsigned int uint_18;
+	_BYTE gap_1C[12];
+	CTexture* qword_28;
+	_BYTE gap_30[24];
+	CTexture* pqword_48;
+	CTexture* qword_50;
+	float reflectRefractScale1;
+	float float_5C;
+	float float_60;
+	float float_64;
+	float reflectRefractScale0;
+	float reflectTint[3];
+	CTexture* qword_78;
+	_QWORD qword_80;
+	unsigned int uint_88;
+	float bumpTexCoordTransformRotateX[2];
+	float bumpTexCoordTransformRotateY[2];
+	float bumpTexCoordTransformTranslate[2];
+	_BYTE gap_A4[8];
+	float waterFogColor[3];
+	_BYTE gap_B8[20];
+	_DWORD dword_CC;
+	float float_D0;
+	float mulitTexScrollRate0[2];
+	float mulitTexScrollRate1[2];
+	_DWORD dword_E4;
+	CTexture* qword_E8;
+	CTexture* qword_F0;
+	unsigned int uint_F8;
+	float float_FC;
+	float float_100;
+	float float_104;
+	float float_108;
+	float float_10C;
+	float float_110;
+	float colorFlowTexCoordScaleInverse;
+	float colorFlowCyclePeriod;
+	float float_11C;
+	float float_120;
+	float float_124;
+	float float_128;
+	float float_12C;
+	float float_130;
+	_DWORD dword_134;
+};
+
+struct struct_a3_water
+{
+	_BYTE gap0[8];
+	_QWORD qword8;
+	_BYTE gap10[104];
+	_QWORD qword78;
+};
+
+struct shaderInitData
+{
+	_DWORD dword0;
+	_DWORD dword4;
+	_QWORD qword8;
+	_QWORD qword10;
+	const char* shaderName[6];
+	_DWORD staticComboIds[6];
+};
+
+
+using InitWaterShader_t = int64_t(__fastcall*)(WaterShader* a1, waterShaderData** a2, struct_a3_water* a3, shaderInitData* a4);
+static auto oInitWaterShader = (InitWaterShader_t)(G_matsystem + 0x32490);
+
+int64_t __fastcall InitWaterShader_41B50(WaterShader* a1, waterShaderData** a2, struct_a3_water* a3, shaderInitData* a4) {
+
+	//for (int i = 0; i < a1->vtbl->GetParamCount(a1); i++)
+	//{
+	//	ShaderParamInfo* info = a1->vtbl->GetParamInfo(a1, i);
+	//	//spdlog::info("Param index \"{}\" name \"{}\" type \"{}\"", i, info->m_name, info->dword_8);
+	//	Msg("Param index \"%d\" name \"%s\" type \"%d\", flags: %d, defaultValue \"%s\", helpText \"%s\"\n", i, info->m_name, info->dword_8,info->m_nFlags,info->m_defaultVal,info->m_helpText);
+	//}
+
+	auto res = oInitWaterShader(a1, a2, a3, a4);
+	Msg("--------------------------------\n");
+	Msg("Water vertex combo: %d\n", a4->staticComboIds[1]);
+	Msg("Water pixel combo: %d \n", a4->staticComboIds[0]);
+	return res;
+}
+
+
 static bool should_init_security_fixes = false;
 void __stdcall LoaderNotificationCallback(
 	unsigned long notification_reason,
@@ -781,6 +902,7 @@ void __stdcall LoaderNotificationCallback(
 	else if (string_equal_size(name, name_len, L"materialsystem_dx11.dll")) {
 		G_matsystem = (uintptr_t)notification_data->Loaded.DllBase;
 		SetupHudWarpMatSystemHooks();
+		MH_CreateHook((LPVOID)(G_matsystem + 0x32490), &InitWaterShader_41B50, reinterpret_cast<LPVOID*>(&oInitWaterShader));
 		MH_EnableHook(MH_ALL_HOOKS);
 	}
 	else if (string_equal_size(name, name_len, L"vguimatsurface.dll")) {
