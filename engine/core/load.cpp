@@ -950,7 +950,8 @@ void __stdcall LoaderNotificationCallback(
 			RegisterConVar("delta_hud_show_xpbar", "1", FCVAR_CLIENTDLL | FCVAR_ARCHIVE_PLAYERPROFILE, "Show XP bar.");
 			RegisterConCommand("+voteYes", toggleFullscreenMap_cmd, "Vote yes.", FCVAR_CLIENTDLL);
 			RegisterConCommand("+voteNo", toggleFullscreenMap_cmd, "Vote no.", FCVAR_CLIENTDLL);
-
+			RegisterConVar("delta_improve_visibility", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE_PLAYERPROFILE, "Disable some visual effects to improve visibility.");
+			
 			MH_CreateHook((LPVOID)(G_localize + 0x3A40), &h_CLocalize__ReloadLocalizationFiles, (LPVOID*)&o_pCLocalize__ReloadLocalizationFiles);
 			MH_EnableHook(MH_ALL_HOOKS);
 			std::thread(DiscordThread).detach();
