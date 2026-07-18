@@ -950,6 +950,9 @@ void __stdcall LoaderNotificationCallback(
 			RegisterConVar("delta_hud_show_xpbar", "1", FCVAR_CLIENTDLL | FCVAR_ARCHIVE_PLAYERPROFILE, "Show XP bar.");
 			RegisterConCommand("+voteYes", toggleFullscreenMap_cmd, "Vote yes.", FCVAR_CLIENTDLL);
 			RegisterConCommand("+voteNo", toggleFullscreenMap_cmd, "Vote no.", FCVAR_CLIENTDLL);
+			RegisterConVar("delta_hud_misc_changes", "1", FCVAR_CLIENTDLL | FCVAR_ARCHIVE_PLAYERPROFILE, "Enable some small miscellaneous r1delta hud changes.");
+			RegisterConVar("delta_play_hitsounds", "1", FCVAR_CLIENTDLL | FCVAR_ARCHIVE_PLAYERPROFILE, "Play hitsounds.");
+			RegisterConVar("delta_play_killsounds", "1", FCVAR_CLIENTDLL | FCVAR_ARCHIVE_PLAYERPROFILE, "Play killsounds.");
 
 			MH_CreateHook((LPVOID)(G_localize + 0x3A40), &h_CLocalize__ReloadLocalizationFiles, (LPVOID*)&o_pCLocalize__ReloadLocalizationFiles);
 			MH_EnableHook(MH_ALL_HOOKS);
